@@ -1,5 +1,5 @@
-import React from "react";
-import { useForm, Controller } from "react-hook-form";
+import React, { useState } from "react";
+import { useForm } from "react-hook-form";
 import { X } from "lucide-react";
 import { addDoc, collection } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -15,36 +15,47 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onClose, onSuccess }) =>
     const { user } = useAuth();
     const {
         register,
-        control,
         handleSubmit,
         formState: { errors },
     } = useForm();
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const onSubmit = async (data: any) => {
         try {
+            setIsSubmitting(true);
             let attachmentUrl = "";
 
-            if (data.attachmentFile && data.attachmentFile.length > 0) {
-                const file = data.attachmentFile[0];
+            // Handle file upload first
+            const file = data.attachment?.[0];
+            if (file) {
                 const storageRef = ref(storage, `attachments/${Date.now()}_${file.name}`);
-                await uploadBytes(storageRef, file);
-                attachmentUrl = await getDownloadURL(storageRef);
+                const snapshot = await uploadBytes(storageRef, file);
+                attachmentUrl = await getDownloadURL(snapshot.ref);
             }
 
-            const { attachmentFile, ...ticketData } = data;
-
-            await addDoc(collection(db, "tickets"), {
-                ...ticketData,
-                attachmentUrl: attachmentUrl || "",
+            // Prepare ticket data without the file input
+            const ticketData = {
+                title: data.title,
+                description: data.description,
+                priority: data.priority,
+                category: data.category,
+                contactEmail: data.contactEmail,
+                contactPhone: data.contactPhone || "",
+                additionalNotes: data.additionalNotes || "",
+                attachmentUrl,
                 createdBy: user?.uid,
                 createdAt: new Date(),
                 status: "open",
-            });
+            };
 
+            // Add to Firestore
+            await addDoc(collection(db, "tickets"), ticketData);
             onSuccess();
             onClose();
         } catch (error) {
             console.error("Error creating ticket:", error);
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -53,7 +64,11 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onClose, onSuccess }) =>
             <div className="bg-white rounded-lg p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-2xl font-bold">Create New Ticket</h2>
-                    <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+                    <button
+                        onClick={onClose}
+                        disabled={isSubmitting}
+                        className="text-gray-500 hover:text-gray-700"
+                    >
                         <X className="w-6 h-6" />
                     </button>
                 </div>
@@ -144,17 +159,11 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onClose, onSuccess }) =>
                         <label className="block text-sm font-medium text-gray-700">
                             Attachment
                         </label>
-                        <Controller
-                            name="attachmentFile"
-                            control={control}
-                            defaultValue={null}
-                            render={({ field }) => (
-                                <input
-                                    type="file"
-                                    onChange={(e) => field.onChange(e.target.files)}
-                                    className="mt-1 block w-full p-2"
-                                />
-                            )}
+                        <input
+                            type="file"
+                            {...register("attachment")}
+                            className="mt-1 block w-full p-2"
+                            accept="image/*,.pdf,.doc,.docx"
                         />
                     </div>
 
@@ -173,15 +182,17 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onClose, onSuccess }) =>
                         <button
                             type="button"
                             onClick={onClose}
-                            className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                            disabled={isSubmitting}
+                            className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
-                            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                            disabled={isSubmitting}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                         >
-                            Create Ticket
+                            {isSubmitting ? "Creating..." : "Create Ticket"}
                         </button>
                     </div>
                 </form>
